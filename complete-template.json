@@ -1,0 +1,188 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "vnetName": { "type": "string", "defaultValue": "myVNet" },
+    "addressPrefix": { "type": "string", "defaultValue": "10.0.0.0/16" },
+    "subnets": {
+      "type": "array",
+      "defaultValue": [
+        { "name": "subnet1", "prefix": "10.0.0.0/24" },
+        { "name": "subnet2", "prefix": "10.0.1.0/24" },
+        { "name": "subnet3", "prefix": "10.0.2.0/24" }
+      ]
+    },
+    "winPublicIpName": { "type": "string", "defaultValue": "winPublicIP" },
+    "linuxPublicIpName": { "type": "string", "defaultValue": "linuxPublicIP" },
+    "winVmName": { "type": "string", "defaultValue": "winVM" },
+    "linuxVmName": { "type": "string", "defaultValue": "linuxVM" },
+    "adminUsername": { "type": "string" },
+    "adminPassword": { "type": "securestring" },
+    "vmSize": { "type": "string", "defaultValue": "Standard_B1s" },
+    "winImageSku": { "type": "string", "defaultValue": "2019-Datacenter" },
+    "linuxImageSku": { "type": "string", "defaultValue": "8-lvm-gen2" },
+    "winNicName": { "type": "string", "defaultValue": "winNic" },
+    "linuxNicName": { "type": "string", "defaultValue": "linuxNic" },
+    "location": { "type": "string", "defaultValue": "[resourceGroup().location]" }
+  },
+  "variables": {
+    "winSubnetRef": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('subnets')[0].name)]",
+    "linuxSubnetRef": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('subnets')[1].name)]",
+    "winPublicIpRef": "[resourceId('Microsoft.Network/publicIPAddresses', parameters('winPublicIpName'))]",
+    "linuxPublicIpRef": "[resourceId('Microsoft.Network/publicIPAddresses', parameters('linuxPublicIpName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-05-01",
+      "name": "[parameters('vnetName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": { "addressPrefixes": [ "[parameters('addressPrefix')]" ] }
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks/subnets",
+      "apiVersion": "2023-05-01",
+      "name": "[concat(parameters('vnetName'), '/', parameters('subnets')[copyIndex()].name)]",
+      "dependsOn": [ "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]" ],
+      "copy": {
+        "name": "subnetsCopy",
+        "count": "[length(parameters('subnets'))]"
+      },
+      "properties": {
+        "addressPrefix": "[parameters('subnets')[copyIndex()].prefix]"
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-05-01",
+      "name": "[parameters('winPublicIpName')]",
+      "location": "[parameters('location')]",
+      "sku": { "name": "Standard" },
+      "properties": { "publicIPAllocationMethod": "Static" }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-05-01",
+      "name": "[parameters('linuxPublicIpName')]",
+      "location": "[parameters('location')]",
+      "sku": { "name": "Standard" },
+      "properties": { "publicIPAllocationMethod": "Static" }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-05-01",
+      "name": "[parameters('winNicName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', parameters('winPublicIpName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('subnets')[0].name)]"
+      ],
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": { "id": "[variables('winSubnetRef')]" },
+              "publicIPAddress": { "id": "[variables('winPublicIpRef')]" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-05-01",
+      "name": "[parameters('linuxNicName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', parameters('linuxPublicIpName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('subnets')[1].name)]"
+      ],
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": { "id": "[variables('linuxSubnetRef')]" },
+              "publicIPAddress": { "id": "[variables('linuxPublicIpRef')]" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2023-03-01",
+      "name": "[parameters('winVmName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [ "[resourceId('Microsoft.Network/networkInterfaces', parameters('winNicName'))]" ],
+      "properties": {
+        "hardwareProfile": { "vmSize": "[parameters('vmSize')]" },
+        "osProfile": {
+          "computerName": "[parameters('winVmName')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]",
+          "windowsConfiguration": { "enableAutomaticUpdates": true }
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "MicrosoftWindowsServer",
+            "offer": "WindowsServer",
+            "sku": "[parameters('winImageSku')]",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage",
+            "managedDisk": { "storageAccountType": "Standard_LRS" }
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            { "id": "[resourceId('Microsoft.Network/networkInterfaces', parameters('winNicName'))]" }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2023-03-01",
+      "name": "[parameters('linuxVmName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [ "[resourceId('Microsoft.Network/networkInterfaces', parameters('linuxNicName'))]" ],
+      "properties": {
+        "hardwareProfile": { "vmSize": "[parameters('vmSize')]" },
+        "osProfile": {
+          "computerName": "[parameters('linuxVmName')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]",
+          "linuxConfiguration": { "disablePasswordAuthentication": false }
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "RedHat",
+            "offer": "RHEL",
+            "sku": "[parameters('linuxImageSku')]",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage",
+            "managedDisk": { "storageAccountType": "Standard_LRS" }
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            { "id": "[resourceId('Microsoft.Network/networkInterfaces', parameters('linuxNicName'))]" }
+          ]
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "winVmId": { "type": "string", "value": "[resourceId('Microsoft.Compute/virtualMachines', parameters('winVmName'))]" },
+    "linuxVmId": { "type": "string", "value": "[resourceId('Microsoft.Compute/virtualMachines', parameters('linuxVmName'))]" }
+  }
+}

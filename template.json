@@ -1,0 +1,324 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",  // Schema for validation
+  "contentVersion": "1.0.0.0",  // Your version for tracking
+  "parameters": {
+    "location": {  // Parameter for region
+      "type": "string",
+      "defaultValue": "southeastasia"
+    },
+    "adminUsername": {  // VM admin user
+      "type": "string",
+      "defaultValue": "nuruladmin"
+    },
+    "adminPassword": {  // VM admin password (use secureString in prod)
+      "type": "string",
+      "defaultValue": "LP@ssw0rdL99"
+    }
+  },
+  "variables": {  // Reusable values
+    "vnetName": "NURUL-vNET",
+    "winSubnetName": "WindowsAppSubnet",
+    "linuxSubnetName": "LinuxDBSubnet",
+    "winNsgName": "WinNSG",
+    "linuxNsgName": "LinuxNSG",
+    "winPublicIpName": "WinPublicIP",
+    "linuxPublicIpName": "LinuxPublicIP",
+    "winNicName": "WinNIC",
+    "linuxNicName": "LinuxNIC",
+    "winVmName": "WinVM",
+    "linuxVmName": "LinuxVM"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks",  // vNet resource
+      "apiVersion": "2023-05-01",
+      "name": "[variables('vnetName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": ["10.110.0.0/16"]  // Overall IP range
+        },
+        "subnets": [  // Subnets created here
+          {
+            "name": "[variables('winSubnetName')]",
+            "properties": {
+              "addressPrefix": "10.110.1.0/24"  // Subnet CIDR
+            }
+          },
+          {
+            "name": "[variables('linuxSubnetName')]",
+            "properties": {
+              "addressPrefix": "10.110.2.0/24"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",  // Windows Public IP
+      "apiVersion": "2023-05-01",
+      "name": "[variables('winPublicIpName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard"  // SKU: Standard for availability zones
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static"  // Static: IP persists
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",  // Linux Public IP
+      "apiVersion": "2023-05-01",
+      "name": "[variables('linuxPublicIpName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static"
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",  // Windows NSG
+      "apiVersion": "2023-05-01",
+      "name": "[variables('winNsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [  // Inbound rules
+          {
+            "name": "RDP",
+            "properties": {
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "3389",  // RDP port
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 100,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "HTTP",
+            "properties": {
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "80",  // HTTP
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 110,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "HTTPS",
+            "properties": {
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "443",  // HTTPS
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 120,
+              "direction": "Inbound"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",  // Linux NSG
+      "apiVersion": "2023-05-01",
+      "name": "[variables('linuxNsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "SSH",
+            "properties": {
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "22",  // SSH port
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 100,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "HTTP",
+            "properties": {
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "80",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 110,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "HTTPS",
+            "properties": {
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "443",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 120,
+              "direction": "Inbound"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",  // Windows NIC
+      "apiVersion": "2023-05-01",
+      "name": "[variables('winNicName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",  // Auto-assign private IP
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('winSubnetName'))]"  // Subnet reference
+              },
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('winPublicIpName'))]"  // Public IP attach
+              }
+            }
+          }
+        ],
+        "networkSecurityGroup": {
+          "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('winNsgName'))]"  // NSG attach
+        }
+      },
+      "dependsOn": [  // Dependencies
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('winPublicIpName'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('winNsgName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",  // Linux NIC
+      "apiVersion": "2023-05-01",
+      "name": "[variables('linuxNicName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('linuxSubnetName'))]"
+              },
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('linuxPublicIpName'))]"
+              }
+            }
+          }
+        ],
+        "networkSecurityGroup": {
+          "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('linuxNsgName'))]"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('linuxPublicIpName'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('linuxNsgName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",  // Windows VM
+      "apiVersion": "2023-03-01",
+      "name": "[variables('winVmName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "Standard_D2as_v5"  // VM size (change if needed)
+        },
+        "osProfile": {
+          "computerName": "[variables('winVmName')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]"
+        },
+        "storageProfile": {
+          "imageReference": {  // Image details
+            "publisher": "MicrosoftWindowsServer",
+            "offer": "WindowsServer",
+            "sku": "2019-Datacenter",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage"  // Create from image
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('winNicName'))]"  // NIC attach
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', variables('winNicName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",  // Linux VM
+      "apiVersion": "2023-03-01",
+      "name": "[variables('linuxVmName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "Standard_D2as_v5"
+        },
+        "osProfile": {
+          "computerName": "[variables('linuxVmName')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]"  // Password for Linux (SSH key preferred in prod)
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "RedHat",
+            "offer": "RHEL",
+            "sku": "8-lvm-gen2",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage"
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('linuxNicName'))]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', variables('linuxNicName'))]"
+      ]
+    }
+  ],
+  "outputs": {  // Optional: Return public IPs for easy access
+    "winPublicIp": {
+      "type": "string",
+      "value": "[reference(variables('winPublicIpName')).ipAddress]"
+    },
+    "linuxPublicIp": {
+      "type": "string",
+      "value": "[reference(variables('linuxPublicIpName')).ipAddress]"
+    }
+  }
+}
